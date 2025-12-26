@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Volcano Bomb Explorers: Master Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #2b0707; display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 100vh; padding: 2rem; box-sizing: border-box; color: #fecaca; }
+        .game-container { max-width: 800px; width: 100%; background-color: #1a0b0b; border: 4px solid #991b1b; border-radius: 1.5rem; box-shadow: 0 0 30px rgba(220, 38, 38, 0.3); padding: 2.5rem; display: flex; flex-direction: column; gap: 1.5rem; }
+        .story-text { line-height: 1.75; color: #fca5a5; }
+        .button-container { display: flex; flex-direction: column; gap: 1rem; }
+        button { background-color: #b91c1c; color: white; padding: 0.75rem 1.5rem; border-radius: 0.75rem; font-weight: bold; transition: all 0.2s; cursor: pointer; border: none; text-align: left; }
+        button:hover { background-color: #dc2626; transform: scale(1.01); box-shadow: 0 0 15px rgba(239, 68, 68, 0.4); }
+        button:disabled { background-color: #4b5563; cursor: not-allowed; opacity: 0.5; }
+        .restart-button { background-color: #ef4444; }
+        .undo-button { background-color: #f59e0b; }
+        .retreat-button { background-color: #431407; border: 1px solid #9a3412; }
+        .shop-button { background-color: #1e3a8a; border: 1px solid #3b82f6; }
+        .inventory-panel { background: #2d0a0a; padding: 1rem; border-radius: 1rem; border: 1px solid #7f1d1d; }
+        .crystal-tag { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 0.5rem; font-size: 0.75rem; margin: 0.2rem; font-weight: bold; }
+        .c-green { background: #166534; color: #bbf7d0; }
+        .c-red { background: #991b1b; color: #fecaca; }
+        .c-yellow { background: #854d0e; color: #fef08a; }
+        .c-blue { background: #1e40af; color: #bfdbfe; }
+        .c-special { background: #581c87; color: #e9d5ff; border: 1px solid #c084fc; }
+        .modal { display: none; position: fixed; z-index: 50; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.85); justify-content: center; align-items: center; }
+        .modal-content { background-color: #1e1e1e; padding: 2rem; border-radius: 1rem; max-width: 500px; text-align: center; border: 2px solid #dc2626; }
+    </style>
+</head>
+<body>
+
+    <div class="game-container">
+        <div class="flex justify-between items-center mb-2">
+            <h1 class="text-2xl font-black text-red-500 uppercase tracking-widest">Volcano Explorers</h1>
+            <span id="fail-counter" class="text-orange-500 font-bold bg-black px-3 py-1 rounded-full border border-orange-900">Fails: 0</span>
+        </div>
+        
+        <div class="inventory-panel">
+            <h3 class="text-xs font-bold text-red-400 uppercase mb-2">Inventory</h3>
+            <div id="crystal-list" class="flex flex-wrap gap-1"></div>
+            <h3 class="text-xs font-bold text-orange-400 uppercase mt-4 mb-2">Gear & Specials</h3>
+            <div id="special-list" class="flex flex-wrap gap-1"></div>
+        </div>
+
+        <div id="story-text" class="story-text text-lg"></div>
+        <div id="choice-buttons" class="button-container"></div>
+    </div>
+
+    <div id="loot-modal" class="modal">
+        <div class="modal-content">
+            <h2 id="loot-title" class="text-2xl font-bold mb-4 text-white"></h2>
+            <p id="loot-desc" class="mb-6 text-gray-300"></p>
+            <button onclick="closeLoot()" class="w-full text-center">Continue</button>
+        </div>
+    </div>
+
+    <script>
+        let currentState = 'start';
+        let lastSafeState = 'start';
+        let fails = 0;
+        let bombAvailability = { ridge: true, ash: true, peak: true, forest: true, shrine: true, ravine: true, tubes: true, echo: true };
+        
+        let inventory = {
+            green: 0, red: 0, yellow: 0, blue: 0,
+            lavaRock: false, diamond: false, trexTooth: false, ancientMap: false,
+            hasShield: false, hasBoots: false, hasPickaxe: false
+        };
+
+        function resetGame() {
+            inventory = { green: 0, red: 0, yellow: 0, blue: 0, lavaRock: false, diamond: false, trexTooth: false, ancientMap: false, hasShield: false, hasBoots: false, hasPickaxe: false };
+            bombAvailability = { ridge: true, ash: true, peak: true, forest: true, shrine: true, ravine: true, tubes: true, echo: true };
+            fails = 0;
+            updateUI();
+        }
+
+        function rollForLoot(locationKey) {
+            bombAvailability[locationKey] = false; 
+            const rolls = inventory.hasPickaxe ? 2 : 1;
+            let results = [];
+            for(let i=0; i<rolls; i++) {
+                const roll = Math.random() * 100;
+                let res = {};
+                if (roll < 30) res = { name: "Nothing/Fakey", desc: "Just basalt." };
+                else if (roll < 60) { inventory.green++; res = { name: "Green Crystal", desc: "Found olivine!" }; }
+                else if (roll < 75) { inventory.red++; res = { name: "Red Crystal", desc: "Found garnet!" }; }
+                else if (roll < 85) { inventory.yellow++; res = { name: "Yellow Crystal", desc: "Found sulfur!" }; }
+                else if (roll < 88) { inventory.blue++; res = { name: "Blue Crystal", desc: "Rare blue glass!" }; }
+                else if (roll < 91) { inventory.lavaRock = true; res = { name: "Half Lava Rock", desc: "Specimen collected." }; }
+                else if (roll < 94) { inventory.diamond = true; res = { name: "Diamond", desc: "Pure carbon!" }; }
+                else if (roll < 97) { inventory.trexTooth = true; res = { name: "T-Rex Tooth", desc: "Ancient fossil!" }; }
+                else { inventory.ancientMap = true; res = { name: "Ancient Map", desc: "Secret tunnels revealed!" }; }
+                results.push(res);
+            }
+            showLootModal({ name: results.map(r => r.name).join(" & "), desc: results.map(r => r.desc).join(" ") });
+            updateUI();
+        }
+
+        function showLootModal(loot) {
+            document.getElementById('loot-title').textContent = "Result: " + loot.name;
+            document.getElementById('loot-desc').textContent = loot.desc;
+            document.getElementById('loot-modal').style.display = 'flex';
+        }
+
+        function closeLoot() { document.getElementById('loot-modal').style.display = 'none'; }
+
+        function updateUI() {
+            const list = document.getElementById('crystal-list');
+            const specialList = document.getElementById('special-list');
+            list.innerHTML = ''; specialList.innerHTML = '';
+            ['green', 'red', 'yellow', 'blue'].forEach(c => {
+                if (inventory[c] > 0) {
+                    const span = document.createElement('span');
+                    span.className = `crystal-tag c-${c}`;
+                    span.textContent = `${c.toUpperCase()}: ${inventory[c]}`;
+                    list.appendChild(span);
+                }
+            });
+            if (inventory.lavaRock) specialList.innerHTML += `<span class="crystal-tag c-special">🌋 Lava Rock</span>`;
+            if (inventory.diamond) specialList.innerHTML += `<span class="crystal-tag c-special">💎 Diamond</span>`;
+            if (inventory.trexTooth) specialList.innerHTML += `<span class="crystal-tag c-special">🦖 T-Rex Tooth</span>`;
+            if (inventory.ancientMap) specialList.innerHTML += `<span class="crystal-tag c-special">📜 Ancient Map</span>`;
+            if (inventory.hasShield) specialList.innerHTML += `<span class="crystal-tag c-blue">🛡️ Shield</span>`;
+            if (inventory.hasBoots) specialList.innerHTML += `<span class="crystal-tag c-blue">🥾 Boots</span>`;
+            if (inventory.hasPickaxe) specialList.innerHTML += `<span class="crystal-tag c-blue">⛏️ Pickaxe</span>`;
+            document.getElementById('fail-counter').textContent = `Fails: ${fails}`;
+        }
+
+        const scenes = {
+            start: {
+                text: "Base Camp. Prepare your expedition. Reset your bomb detectors before heading out.",
+                choices: [
+                    { text: "Visit the Shop", nextScene: 'shop' },
+                    { text: "North: Scorched Ridge", nextScene: 'ridge' },
+                    { text: "South: Obsidian Forest", nextScene: 'forest' },
+                    { text: "Down: Steaming Tubes", nextScene: 'tubes' }
+                ],
+                action: () => { 
+                    Object.keys(bombAvailability).forEach(key => bombAvailability[key] = true);
+                }
+            },
+            shop: {
+                text: "Shopkeeper: 'Crystals for gear. No refunds!'",
+                choices: [
+                    { text: "Buy Steam Shield (5 Green, 2 Red)", action: () => { if (inventory.green >= 5 && inventory.red >= 2) { inventory.green -= 5; inventory.red -= 2; inventory.hasShield = true; } }, nextScene: 'shop' },
+                    { text: "Buy Obsidian Boots (3 Red, 3 Yellow)", action: () => { if (inventory.red >= 3 && inventory.yellow >= 3) { inventory.red -= 3; inventory.yellow -= 3; inventory.hasBoots = true; } }, nextScene: 'shop' },
+                    { text: "Buy Heavy Pickaxe (10 Green, 5 Yellow)", action: () => { if (inventory.green >= 10 && inventory.yellow >= 5) { inventory.green -= 10; inventory.yellow -= 5; inventory.hasPickaxe = true; } }, nextScene: 'shop' },
+                    { text: "Leave Shop", nextScene: 'start' }
+                ]
+            },
+            ridge: {
+                text: "Scorched Ridge. Ash clouds obscure the path.",
+                choices: [
+                    { text: "Crack open bomb", condition: () => bombAvailability.ridge, action: () => rollForLoot('ridge'), nextScene: 'ridge_after' },
+                    { text: "Back to Base Camp", nextScene: 'start' }
+                ]
+            },
+            ridge_after: {
+                text: "Path splits: High Peaks or Ash Plains.",
+                choices: [{ text: "Climb to Peak", nextScene: 'peak' }, { text: "Go to Ash Plains", nextScene: 'ash_plains' }, { text: "Return to Base", nextScene: 'start' }]
+            },
+            ash_plains: {
+                text: "Gray silt. Vents hiss in the distance.",
+                choices: [
+                    { text: "Dig bomb", condition: () => bombAvailability.ash, action: () => rollForLoot('ash'), nextScene: 'ash_plains' },
+                    { text: "Walk to Mud Plain", nextScene: 'swamp_warning' },
+                    { text: "Back to Ridge", nextScene: 'ridge' }
+                ]
+            },
+            swamp_warning: {
+                text: "Warning: Bubbling muck ahead. Extremely sticky.",
+                choices: [{ text: "Push through", nextScene: 'swamp_ending' }, { text: "Turn back", nextScene: 'ash_plains' }]
+            },
+            peak: {
+                text: "The Summit. Massive Steam Vents are erupting nearby.",
+                choices: [
+                    { text: "Open Summit Bomb", condition: () => bombAvailability.peak, action: () => rollForLoot('peak'), nextScene: 'peak' },
+                    { text: "Approach Steam Vents", nextScene: 'steam_vents' },
+                    { text: "Return to Base Camp", nextScene: 'start' },
+                    { text: "Finish Expedition", nextScene: 'win_normal' }
+                ]
+            },
+            steam_vents: {
+                text: "High pressure vents. The heat is overwhelming.",
+                choices: [
+                    { text: "Grab the vent bomb", action: () => {
+                        if (inventory.hasShield) { alert("Shield active!"); rollForLoot('peak'); updateScene('peak'); } 
+                        else if (Math.random() > 0.4) { updateScene('steam_death'); } 
+                        else { rollForLoot('peak'); updateScene('peak'); }
+                    }},
+                    { text: "Back to Peak", nextScene: 'peak' }
+                ]
+            },
+            forest: {
+                text: "Obsidian Forest. Jagged glass trees.",
+                choices: [
+                    { text: "Pry off bomb", condition: () => bombAvailability.forest, action: () => rollForLoot('forest'), nextScene: 'forest_deeper' },
+                    { text: "Back to Base", nextScene: 'start' }
+                ]
+            },
+            forest_deeper: {
+                text: "Forest splits: Shrine or Ravine.",
+                choices: [{ text: "Visit Shrine", nextScene: 'shrine' }, { text: "Go to Ravine", nextScene: 'ravine' }, { text: "Back to Edge", nextScene: 'forest' }]
+            },
+            shrine: {
+                text: "An ancient pumice altar rests in a clearing.",
+                choices: [
+                    { text: "Take altar bomb", condition: () => bombAvailability.shrine, action: () => rollForLoot('shrine'), nextScene: 'forest_deeper' },
+                    { text: "Leave it", nextScene: 'ravine' }
+                ]
+            },
+            ravine: {
+                text: "Lava ravine. Magma flows like a river.",
+                choices: [
+                    { text: "Harvest edge bomb", condition: () => bombAvailability.ravine, action: () => rollForLoot('ravine'), nextScene: 'ravine' },
+                    { text: "Climb up", nextScene: 'forest_deeper' },
+                    { text: "Follow Lava Flow", action: () => { if (inventory.hasBoots) { alert("Boots protect you!"); rollForLoot('ravine'); updateScene('ravine'); } else { updateScene('lava_death'); } }}
+                ]
+            },
+            tubes: {
+                text: "Lava tubes. Natural subterranean tunnels.",
+                choices: [
+                    { text: "Extract bomb", condition: () => bombAvailability.tubes, action: () => rollForLoot('tubes'), nextScene: 'tubes_deeper' },
+                    { text: "Surface", nextScene: 'start' }
+                ]
+            },
+            tubes_deeper: {
+                text: "A crossroads in the pitch black tunnels.",
+                choices: [{ text: "Echo Chamber", nextScene: 'echo' }, { text: "Cracked Floor", nextScene: 'cracked' }, { text: "Go back", nextScene: 'tubes' }]
+            },
+            echo: {
+                text: "Voices echo strangely in this chamber.",
+                choices: [
+                    { text: "Open hollow bomb", condition: () => bombAvailability.echo, action: () => rollForLoot('echo'), nextScene: 'echo' },
+                    { text: "Go to Cracked Floor", nextScene: 'cracked' }
+                ]
+            },
+            cracked: {
+                text: "The floor is shattering into the abyss!",
+                choices: [{ text: "Jump to safety", nextScene: 'tubes_deeper' }],
+                action: () => {
+                    if (inventory.ancientMap) {
+                        scenes.cracked.choices = [{ text: "Jump to safety", nextScene: 'tubes_deeper' }, { text: "Use Map to land in Secret Cavern", nextScene: 'cavern_secret' }];
+                    } else {
+                        scenes.cracked.choices = [{ text: "Jump to safety", nextScene: 'tubes_deeper' }];
+                    }
+                }
+            },
+            cavern_secret: {
+                text: "Secret Cavern discovered! 1,000 crystals are yours!",
+                choices: [{ text: "Win Legendary Status", nextScene: 'win_secret' }],
+                action: () => { inventory.green += 250; inventory.red += 250; inventory.yellow += 250; inventory.blue += 250; updateUI(); }
+            },
+            swamp_ending: { text: "Stuck in the muck. You've failed this expedition.", isEnding: true },
+            steam_death: { text: "Scalded by steam. You've failed this expedition.", isEnding: true },
+            lava_death: { text: "The lava is too hot. You've failed this expedition.", isEnding: true },
+            win_normal: { text: "Expedition successful! You return as heroes.", isEnding: true },
+            win_secret: { text: "You have found the Hoard! You are legends!", isEnding: true }
+        };
+
+        function updateScene(sceneId) {
+            const scene = scenes[sceneId];
+            
+            // Log fails and track previous state for undo
+            if (scene.isEnding && !sceneId.includes('win')) {
+                fails++;
+            } else if (!scene.isEnding) {
+                lastSafeState = sceneId; // Track the last place they were alive
+            }
+
+            currentState = sceneId;
+            if (scene.action) scene.action();
+
+            const storyEl = document.getElementById('story-text');
+            const btnContainer = document.getElementById('choice-buttons');
+            storyEl.innerHTML = scene.text;
+            btnContainer.innerHTML = '';
+
+            if (scene.isEnding) {
+                if (sceneId.includes('win')) {
+                    const restartBtn = document.createElement('button');
+                    restartBtn.textContent = "Start New Quest";
+                    restartBtn.className = "restart-button";
+                    restartBtn.onclick = () => { resetGame(); updateScene('start'); };
+                    btnContainer.appendChild(restartBtn);
+                } else {
+                    const undoBtn = document.createElement('button');
+                    undoBtn.textContent = "Undo (Try Again)";
+                    undoBtn.className = "undo-button";
+                    undoBtn.onclick = () => updateScene(lastSafeState);
+                    btnContainer.appendChild(undoBtn);
+
+                    const restartBtn = document.createElement('button');
+                    restartBtn.textContent = "Restart Entire Quest";
+                    restartBtn.className = "restart-button";
+                    restartBtn.onclick = () => { resetGame(); updateScene('start'); };
+                    btnContainer.appendChild(restartBtn);
+                }
+            } else {
+                scene.choices.forEach(choice => {
+                    if (choice.condition && !choice.condition()) return;
+
+                    const btn = document.createElement('button');
+                    btn.textContent = choice.text;
+                    if (choice.text.includes("Base") || choice.text.includes("back") || choice.text.includes("Return") || choice.text.includes("surface")) btn.classList.add('retreat-button');
+                    if (sceneId === 'shop') {
+                        btn.classList.add('shop-button');
+                        if (choice.text.includes("Shield") && (inventory.green < 5 || inventory.red < 2 || inventory.hasShield)) btn.disabled = true;
+                        if (choice.text.includes("Boots") && (inventory.red < 3 || inventory.yellow < 3 || inventory.hasBoots)) btn.disabled = true;
+                        if (choice.text.includes("Pickaxe") && (inventory.green < 10 || inventory.yellow < 5 || inventory.hasPickaxe)) btn.disabled = true;
+                    }
+                    btn.onclick = () => { if (choice.action) choice.action(); updateScene(choice.nextScene); };
+                    btnContainer.appendChild(btn);
+                });
+            }
+            updateUI();
+        }
+        updateScene('start');
+    </script>
+</body>
+</html>
